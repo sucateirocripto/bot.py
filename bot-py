@@ -1,27 +1,44 @@
+import os
 import telebot
 import requests
 import time
 
-TOKEN = "8204445380:AAHcjru31PV3Vfz15s41TtqyDHrSFGGHuI8"
+# ===== CONFIGURAÇÕES =====
 
+TOKEN = os.getenv("TOKEN")  # Coloque no Render como variável de ambiente
 LNBITS_URL = "https://demo.lnbits.com"
-INVOICE_KEY = "052a72b8573f493182e13353c93a22fa"
-
+INVOICE_KEY = os.getenv("INVOICE_KEY")  # Também colocar no Render
 LINK_EBOOK = "https://drive.google.com/file/d/1hkt-22oQHgpk9tEPZeSiGJNz7MKHsCw7/view?usp=drivesdk"
 
+if not TOKEN:
+    raise ValueError("TOKEN não encontrado nas variáveis de ambiente")
+
+if not INVOICE_KEY:
+    raise ValueError("INVOICE_KEY não encontrada nas variáveis de ambiente")
+
 bot = telebot.TeleBot(TOKEN)
+
+# ===== COMANDO START =====
 
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = telebot.types.InlineKeyboardMarkup()
-    botao = telebot.types.InlineKeyboardButton("📘 Comprar - 2 sats", callback_data="comprar")
+    botao = telebot.types.InlineKeyboardButton(
+        "📘 Comprar - 2 sats",
+        callback_data="comprar"
+    )
     markup.add(botao)
 
     bot.send_message(
         message.chat.id,
-        "🌳 Bitcoin no Mundo Animal\n\nPreço: 2 sats\n\nClique abaixo para comprar:",
-        reply_markup=markup
+        "🌳 *Bitcoin no Mundo Animal*\n\n"
+        "Preço: *2 sats*\n\n"
+        "Clique abaixo para comprar:",
+        reply_markup=markup,
+        parse_mode="Markdown"
     )
+
+# ===== GERAR INVOICE =====
 
 @bot.callback_query_handler(func=lambda call: call.data == "comprar")
 def gerar_invoice(call):
@@ -42,11 +59,16 @@ def gerar_invoice(call):
         "memo": "Compra Ebook Bitcoin no Mundo Animal"
     }
 
-    response = requests.post(
-        f"{LNBITS_URL}/api/v1/payments",
-        json=data,
-        headers=headers
-    )
+    try:
+        response = requests.post(
+            f"{LNBITS_URL}/api/v1/payments",
+            json=data,
+            headers=headers,
+            timeout=10
+        )
+    except requests.exceptions.RequestException:
+        bot.send_message(chat_id, "❌ Erro de conexão com LNBits.")
+        return
 
     if response.status_code != 201:
         bot.send_message(chat_id, "❌ Erro ao gerar invoice.")
@@ -58,10 +80,10 @@ def gerar_invoice(call):
     checking_id = resultado.get("checking_id")
 
     bot.send_message(chat_id, "⚡ Pague esta invoice:")
-    bot.send_message(chat_id, f"{payment_request}", parse_mode="Markdown")
+    bot.send_message(chat_id, payment_request)
     bot.send_message(chat_id, "⏳ Aguardando pagamento...")
 
-    # verifica por até 2 minutos e meio
+    # Verifica pagamento por até 2 minutos e meio
     for _ in range(30):
         time.sleep(5)
 
@@ -75,14 +97,18 @@ def gerar_invoice(call):
 
                 bot.send_message(
                     chat_id,
-                    "🎉 Pagamento confirmado!\n\n"
-                    "📘 Seu ebook está disponível abaixo:"
+                    "🎉 *Pagamento confirmado!*\n\n"
+                    "📘 Seu ebook está disponível abaixo:",
+                    parse_mode="Markdown"
                 )
 
                 bot.send_message(chat_id, LINK_EBOOK)
                 return
 
-    bot.send_message(chat_id, "⚠️ Tempo de pagamento expirado. Envie /start para tentar novamente.")
+    bot.send_message(
+        chat_id,
+        "⚠️ Tempo de pagamento expirado.\nEnvie /start para tentar novamente."
+    )
 
 print("Bot Lightning iniciado...")
 bot.infinity_polling()
